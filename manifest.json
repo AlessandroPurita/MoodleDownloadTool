@@ -1,0 +1,14 @@
+{
+  "manifest_version": 3,
+  "name": "Moodle Course Download Tool",
+  "version": "0.2.0",
+  "description": "Raccoglie e scarica in blocco i file accessibili da un corso Moodle.",
+  "permissions": [
+    "activeTab",
+    "scripting"
+  ],
+  "action": {
+    "default_title": "Scarica materiali Moodle",
+    "default_popup": "popup.html"
+  }
+}

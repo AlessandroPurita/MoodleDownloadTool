@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="it">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Scarica materiali Moodle</title>
+    <link rel="stylesheet" href="popup.css">
+  </head>
+  <body>
+    <main>
+      <header>
+        <div class="eyebrow">MOODLE</div>
+        <h1>Materiali del corso</h1>
+        <p class="intro">Trova i file presenti nella pagina del corso e avvia il download in blocco.</p>
+      </header>
+
+      <button id="scan" class="primary">Scansiona il corso</button>
+
+      <section id="results" hidden>
+        <div class="selection-row">
+          <label class="select-all"><input id="select-all" type="checkbox"> Seleziona tutti nel filtro</label>
+          <span id="count" class="count"></span>
+        </div>
+        <label class="filter-row" for="extension-filter">
+          <span>Tipo di file</span>
+          <select id="extension-filter" disabled>
+            <option value="all">Tutte le estensioni</option>
+          </select>
+        </label>
+        <div id="file-list" class="file-list" aria-label="File trovati"></div>
+        <button id="download" class="primary" disabled>Crea ZIP dei selezionati</button>
+      </section>
+
+      <p id="status" class="status" role="status">Apri il corso Moodle e premi “Scansiona il corso”.</p>
+      <p class="footnote">Il tool usa i link accessibili con il tuo account. Non raccoglie password né invia dati a servizi esterni.</p>
+    </main>
+    <script src="popup.js"></script>
+  </body>
+</html>
