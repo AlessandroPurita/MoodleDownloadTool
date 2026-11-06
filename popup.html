@@ -11,10 +11,20 @@
       <header>
         <div class="eyebrow">MOODLE</div>
         <h1>Materiali del corso</h1>
-        <p class="intro">Trova i file presenti nella pagina del corso e avvia il download in blocco.</p>
+        <p class="intro">Trova i materiali del corso, cercali e scaricali singolarmente o in un archivio ZIP.</p>
       </header>
 
       <button id="scan" class="primary">Scansiona il corso</button>
+
+      <section id="progress-area" class="progress-area" hidden aria-live="polite">
+        <div class="progress-heading">
+          <span id="progress-message">In attesa</span>
+          <strong id="progress-percent">0%</strong>
+        </div>
+        <div id="progress-track" class="progress-track" role="progressbar" aria-label="Avanzamento" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+          <div id="progress-fill" class="progress-fill"></div>
+        </div>
+      </section>
 
       <section id="results" hidden>
         <div class="selection-row">
@@ -27,8 +37,18 @@
             <option value="all">Tutte le estensioni</option>
           </select>
         </label>
+        <label class="search-row" for="search-query">
+          <span>Cerca parole chiave</span>
+          <input id="search-query" type="search" placeholder="Es. vettori, lezione 1…" autocomplete="off">
+        </label>
         <div id="file-list" class="file-list" aria-label="File trovati"></div>
-        <button id="download" class="primary" disabled>Crea ZIP dei selezionati</button>
+        <p id="no-results" class="no-results" hidden>Nessun file corrisponde alla ricerca e al filtro.</p>
+        <label class="zip-option">
+          <input id="zip-option" type="checkbox">
+          <span>Crea un unico archivio ZIP</span>
+        </label>
+        <p class="zip-help">Se non selezioni questa opzione, i file vengono scaricati singolarmente.</p>
+        <button id="download" class="primary" disabled>Scarica file selezionati</button>
       </section>
 
       <p id="status" class="status" role="status">Apri il corso Moodle e premi “Scansiona il corso”.</p>

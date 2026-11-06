@@ -50,6 +50,13 @@ button.primary { color: #fff; background: #a6193c; }
 button.primary:hover:not(:disabled) { background: #8c1432; }
 button:disabled { cursor: default; opacity: .48; }
 
+.progress-area { margin: 13px 0 4px; }
+.progress-heading { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 5px; color: #5f6368; font-size: 11px; }
+.progress-heading strong { color: #202124; font-variant-numeric: tabular-nums; }
+.progress-track { height: 8px; overflow: hidden; border-radius: 999px; background: #eceff1; }
+.progress-fill { width: 0; height: 100%; border-radius: inherit; background: #a6193c; transition: width .15s ease; }
+.progress-area.error .progress-fill { background: #b3261e; }
+
 #results { margin-top: 14px; }
 
 .selection-row {
@@ -86,6 +93,10 @@ button:disabled { cursor: default; opacity: .48; }
 
 .filter-row select:disabled { color: #74777a; background: #f4f5f6; }
 
+.search-row { display: grid; grid-template-columns: 110px 1fr; align-items: center; gap: 8px; margin: 0 0 9px; color: #5f6368; font-size: 12px; }
+.search-row input { width: 100%; min-height: 32px; padding: 5px 8px; border: 1px solid #c6c9cc; border-radius: 6px; color: #202124; background: #fff; font: inherit; }
+.search-row input:focus, .filter-row select:focus { outline: 2px solid #a6193c55; outline-offset: 1px; }
+
 .file-list {
   max-height: 250px;
   overflow: auto;
@@ -108,6 +119,10 @@ button:disabled { cursor: default; opacity: .48; }
 .file-name { min-width: 0; overflow-wrap: anywhere; }
 .file-kind { display: block; margin-top: 2px; color: #74777a; font-size: 10px; }
 .file-row[hidden] { display: none; }
+
+.no-results { margin: 0 0 10px; color: #5f6368; font-size: 12px; }
+.zip-option { display: flex; align-items: center; gap: 8px; margin: 4px 0 3px; font-size: 12px; font-weight: 650; }
+.zip-help { margin: 0 0 10px 24px; color: #74777a; font-size: 10px; line-height: 1.35; }
 
 .status { margin: 11px 0 0; }
 .status.error { color: #a11932; }
