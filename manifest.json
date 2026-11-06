@@ -1,12 +1,13 @@
 {
   "manifest_version": 3,
   "name": "Moodle Course Download Tool",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Cerca, filtra e scarica i file accessibili da un corso Moodle, singolarmente o in ZIP.",
   "permissions": [
     "activeTab",
     "scripting",
-    "downloads"
+    "downloads",
+    "storage"
   ],
   "action": {
     "default_title": "Scarica materiali Moodle",

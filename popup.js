@@ -16,6 +16,7 @@ const progressTrack = document.querySelector("#progress-track");
 const progressFill = document.querySelector("#progress-fill");
 const progressMessage = document.querySelector("#progress-message");
 const progressPercent = document.querySelector("#progress-percent");
+const DOWNLOAD_TASK_KEY = "moodleDownloadTask";
 
 let files = [];
 let courseTitle = "corso-moodle";
@@ -35,15 +36,19 @@ function setProgress(percent, message, isError = false) {
   progressMessage.textContent = message;
 }
 
-function scanMoodleCourse() {
+function startMoodleScan() {
   const pageUrl = new URL(location.href);
   const isCoursePage = pageUrl.pathname.includes("/course/view.php") && pageUrl.searchParams.has("id");
   if (location.hostname !== "elearning.unimib.it" || !isCoursePage) {
     return { error: "Apri la pagina del corso Moodle prima di avviare la scansione." };
   }
 
+  const toolState = window.__moodleDownloadToolState || (window.__moodleDownloadToolState = { scan: null, archive: null });
+  if (toolState.scan?.status === "running") return { started: true, alreadyRunning: true };
+  toolState.scan = { status: "running", percent: 0, message: "Leggo i collegamenti del corso…" };
   const publishProgress = (percent, message) => {
     window.__moodleDownloadToolProgress = { phase: "scan", percent, message };
+    toolState.scan = { ...toolState.scan, status: "running", percent, message };
   };
   publishProgress(0, "Leggo i collegamenti del corso…");
 
@@ -147,7 +152,7 @@ function scanMoodleCourse() {
   }
   publishProgress(20, `Trovati ${found.size} collegamenti file; controllo le cartelle…`);
 
-  return (async () => {
+  const scanJob = (async () => {
     const folders = [...folderPages.entries()];
     for (let folderIndex = 0; folderIndex < folders.length; folderIndex += 1) {
       const [folderUrl, folderLabel] = folders[folderIndex];
@@ -186,9 +191,19 @@ function scanMoodleCourse() {
     publishProgress(100, "Scansione completata.");
     return { title, files: items, folderCount: folderPages.size, folderErrors };
   })();
+
+  scanJob.then((result) => {
+    toolState.scan = { status: "complete", percent: 100, message: `Scansione completata: ${result.files.length} file.`, result };
+    window.__moodleDownloadToolProgress = { phase: "scan", percent: 100, message: toolState.scan.message };
+  }, (error) => {
+    const message = error?.message || "Scansione non riuscita.";
+    toolState.scan = { status: "error", percent: 100, message };
+    window.__moodleDownloadToolProgress = { phase: "scan", percent: 100, message, error: true };
+  });
+  return { started: true };
 }
 
-async function createCourseZip(selectedFiles, archiveName) {
+async function createCourseZipWork(selectedFiles, archiveName) {
   if (location.hostname !== "elearning.unimib.it" || !location.pathname.includes("/course/view.php")) {
     return { ok: false, error: "Apri la pagina del corso Moodle e riprova." };
   }
@@ -196,6 +211,7 @@ async function createCourseZip(selectedFiles, archiveName) {
     return { ok: false, error: "Seleziona almeno un file." };
   }
 
+  const toolState = window.__moodleDownloadToolState || (window.__moodleDownloadToolState = { scan: null, archive: null });
   const panelId = "moodle-course-download-tool-progress";
   let panel = document.getElementById(panelId);
   if (!panel) {
@@ -208,6 +224,7 @@ async function createCourseZip(selectedFiles, archiveName) {
   const showProgress = (percent, message, error = false) => {
     const value = Math.max(0, Math.min(100, Math.round(percent)));
     window.__moodleDownloadToolProgress = { phase: "archive", percent: value, message, error };
+    toolState.archive = { ...toolState.archive, status: error ? "error" : "running", percent: value, message, error };
     panel.replaceChildren();
     const text = document.createElement("span");
     text.textContent = message;
@@ -478,6 +495,33 @@ async function createCourseZip(selectedFiles, archiveName) {
   }
 }
 
+function startCourseZip(selectedFiles, archiveName) {
+  if (location.hostname !== "elearning.unimib.it" || !location.pathname.includes("/course/view.php")) {
+    return { error: "Apri la pagina del corso Moodle e riprova." };
+  }
+  if (!Array.isArray(selectedFiles) || selectedFiles.length === 0) {
+    return { error: "Seleziona almeno un file." };
+  }
+  const toolState = window.__moodleDownloadToolState || (window.__moodleDownloadToolState = { scan: null, archive: null });
+  if (toolState.archive?.status === "running") return { started: true, alreadyRunning: true };
+
+  toolState.archive = { status: "running", percent: 0, message: "Avvio preparazione dell’archivio…" };
+  const job = createCourseZipWork(selectedFiles, archiveName);
+  job.then((result) => {
+    if (result?.ok) {
+      toolState.archive = { status: "complete", percent: 100, message: `Archivio pronto: ${result.included} file.`, result };
+    } else {
+      toolState.archive = { status: "error", percent: 100, message: result?.error || "Creazione dello ZIP non riuscita.", result };
+    }
+    window.__moodleDownloadToolProgress = { phase: "archive", percent: toolState.archive.percent, message: toolState.archive.message, error: toolState.archive.status === "error" };
+  }, (error) => {
+    const message = error?.message || "Creazione dello ZIP non riuscita.";
+    toolState.archive = { status: "error", percent: 100, message };
+    window.__moodleDownloadToolProgress = { phase: "archive", percent: 100, message, error: true };
+  });
+  return { started: true };
+}
+
 async function getCourseTab() {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (!tab?.id || !tab.url) throw new Error("Non riesco a leggere la scheda attiva.");
@@ -488,40 +532,39 @@ async function getCourseTab() {
   return tab;
 }
 
-function readCourseProgress(phase) {
-  const progress = window.__moodleDownloadToolProgress;
-  return progress?.phase === phase ? progress : null;
+function readPageTaskState(taskName) {
+  return window.__moodleDownloadToolState?.[taskName] || null;
 }
 
-async function executeWithProgress(tabId, phase, func, args = []) {
-  let settled = false;
-  const task = chrome.scripting.executeScript({
+async function getPageTaskState(tabId, taskName) {
+  const [result] = await chrome.scripting.executeScript({
     target: { tabId },
     world: "MAIN",
-    func,
+    func: readPageTaskState,
+    args: [taskName]
+  });
+  return result?.result || null;
+}
+
+async function monitorPageTask(tabId, taskName) {
+  while (true) {
+    const task = await getPageTaskState(tabId, taskName);
+    if (!task) throw new Error("Non trovo lo stato dell’operazione nella pagina del corso.");
+    setProgress(task.percent || 0, task.message || "Operazione in corso…", task.status === "error");
+    if (task.status === "complete" || task.status === "error") return task;
+    await new Promise((resolve) => setTimeout(resolve, 300));
+  }
+}
+
+async function startPageTask(tabId, taskName, starter, args = []) {
+  const [result] = await chrome.scripting.executeScript({
+    target: { tabId },
+    world: "MAIN",
+    func: starter,
     args
   });
-  task.then(() => { settled = true; }, () => { settled = true; });
-
-  while (!settled) {
-    try {
-      const [snapshot] = await chrome.scripting.executeScript({
-        target: { tabId },
-        world: "MAIN",
-        func: readCourseProgress,
-        args: [phase]
-      });
-      if (snapshot?.result) {
-        setProgress(snapshot.result.percent, snapshot.result.message, snapshot.result.error);
-      }
-    } catch {
-      // L'iniezione principale restituisce comunque l'errore al termine.
-    }
-    if (!settled) await new Promise((resolve) => setTimeout(resolve, 250));
-  }
-
-  const [result] = await task;
-  return result?.result;
+  if (result?.result?.error) throw new Error(result.result.error);
+  return monitorPageTask(tabId, taskName);
 }
 
 function normalizeDownloadUrl(file) {
@@ -540,60 +583,108 @@ function normalizeDownloadUrl(file) {
   return url.href;
 }
 
-async function downloadSelectedSeparately(selected) {
-  const activeDownloads = [];
-  const failures = [];
-  for (let index = 0; index < selected.length; index += 1) {
-    const file = selected[index];
-    setProgress(5 + Math.floor((index / selected.length) * 20), `Avvio download ${index + 1} di ${selected.length}: ${file.label}…`);
+function downloadTaskStorage() {
+  return chrome.storage.session || chrome.storage.local;
+}
+
+async function saveDownloadTask(task) {
+  await downloadTaskStorage().set({ [DOWNLOAD_TASK_KEY]: task });
+}
+
+async function loadDownloadTask() {
+  const stored = await downloadTaskStorage().get(DOWNLOAD_TASK_KEY);
+  return stored[DOWNLOAD_TASK_KEY] || null;
+}
+
+async function beginIndividualDownloads(selected, courseUrl) {
+  const task = {
+    id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    courseId: new URL(courseUrl).searchParams.get("id"),
+    courseUrl,
+    startedAt: Date.now(),
+    status: "running",
+    total: selected.length,
+    items: selected.map((file) => ({
+      url: normalizeDownloadUrl(file),
+      label: file.label,
+      id: null,
+      state: "pending"
+    }))
+  };
+
+  const persistTask = saveDownloadTask(task);
+  // Start every request before awaiting anything. The browser's download manager
+  // then owns the transfers, even if the action popup closes.
+  const startRequests = task.items.map((file) => {
     try {
-      const id = await chrome.downloads.download({
-        url: normalizeDownloadUrl(file),
+      return chrome.downloads.download({
+        url: file.url,
         conflictAction: "uniquify",
         saveAs: false
-      });
-      activeDownloads.push({ id, label: file.label });
+      }).then((id) => ({ id }), (error) => ({ error: error.message || "download non avviato" }));
     } catch (error) {
-      failures.push({ label: file.label, reason: error.message || "download non avviato" });
+      return Promise.resolve({ error: error.message || "download non avviato" });
     }
-    setProgress(5 + Math.floor(((index + 1) / selected.length) * 20), `Download avviati ${index + 1} di ${selected.length}.`);
-    await new Promise((resolve) => setTimeout(resolve, 150));
+  });
+  await persistTask;
+  const results = await Promise.all(startRequests);
+  results.forEach((result, index) => {
+    const item = task.items[index];
+    if (result.id !== undefined) {
+      item.id = result.id;
+      item.state = "in_progress";
+    } else {
+      item.state = "failed";
+      item.reason = result.error;
+    }
+  });
+  await saveDownloadTask(task);
+  return task.id;
+}
+
+async function refreshDownloadTask(task) {
+  const searchAfter = new Date(Math.max(0, task.startedAt - 5000)).toISOString();
+  const downloads = await chrome.downloads.search({ startedAfter: searchAfter });
+  const claimedIds = new Set(task.items.map((item) => item.id).filter((id) => id !== null));
+  const staleAfterMs = 20000;
+
+  for (const item of task.items) {
+    let found = item.id === null ? null : downloads.find((download) => download.id === item.id);
+    if (!found) {
+      found = downloads.find((download) => !claimedIds.has(download.id) && download.url === item.url);
+    }
+    if (found) {
+      item.id = found.id;
+      claimedIds.add(found.id);
+      item.state = found.state === "complete" ? "complete" : found.state === "interrupted" ? "interrupted" : "in_progress";
+      item.reason = found.error || "";
+    } else if (item.state === "pending" && Date.now() - task.startedAt > staleAfterMs) {
+      item.state = "failed";
+      item.reason = "download non trovato nel gestore download";
+    }
   }
 
-  if (!activeDownloads.length) {
-    setProgress(100, "Nessun download avviato.", true);
-    return { completed: 0, failures };
-  }
+  const completed = task.items.filter((item) => item.state === "complete").length;
+  const failed = task.items.filter((item) => item.state === "failed" || item.state === "interrupted").length;
+  const terminal = completed + failed;
+  task.completed = completed;
+  task.failed = failed;
+  task.progress = task.total ? Math.floor((terminal / task.total) * 100) : 100;
+  task.message = `Download completati ${completed} di ${task.total}${failed ? ` · errori ${failed}` : ""}.`;
+  task.status = terminal === task.total ? (failed ? "complete-with-errors" : "complete") : "running";
+  await saveDownloadTask(task);
+  return task;
+}
 
-  let finalStates = [];
-  let pollErrors = 0;
+async function monitorDownloadTask(taskId) {
   while (true) {
-    try {
-      finalStates = await Promise.all(activeDownloads.map(async (download) => {
-        const [item] = await chrome.downloads.search({ id: download.id });
-        return { label: download.label, state: item?.state || "interrupted" };
-      }));
-      pollErrors = 0;
-    } catch {
-      pollErrors += 1;
-      if (pollErrors >= 5) break;
-    }
-
-    const finished = finalStates.filter((item) => item.state === "complete" || item.state === "interrupted").length;
-    const completed = finalStates.filter((item) => item.state === "complete").length;
-    const settledCount = Math.min(selected.length, finished + failures.length);
-    const percent = 25 + Math.floor((settledCount / selected.length) * 75);
-    setProgress(percent, `Download completati ${completed} di ${selected.length}${failures.length ? ` · errori ${failures.length}` : ""}.`);
-    if (finished === activeDownloads.length || pollErrors >= 5) break;
+    let task = await loadDownloadTask();
+    if (!task || task.id !== taskId) throw new Error("Non trovo lo stato dei download avviati.");
+    task = await refreshDownloadTask(task);
+    setProgress(task.progress, task.message, task.failed > 0);
+    if (task.status !== "running") return task;
     await new Promise((resolve) => setTimeout(resolve, 700));
   }
-
-  const interrupted = finalStates.filter((item) => item.state === "interrupted");
-  const allFailures = [...failures, ...interrupted.map((item) => ({ label: item.label, reason: "download interrotto" }))];
-  const completed = finalStates.filter((item) => item.state === "complete").length;
-  const trackingUnavailable = pollErrors >= 5;
-  setProgress(100, trackingUnavailable ? `Download avviati: ${activeDownloads.length}. Stato finale non disponibile.` : `Download completati: ${completed} di ${selected.length}.`, allFailures.length > 0);
-  return { completed, failures: allFailures, started: activeDownloads.length, trackingUnavailable };
 }
 
 function updateCount() {
@@ -677,32 +768,116 @@ function renderFiles() {
   updateCount();
 }
 
+function showScanTask(task) {
+  if (task.status === "error") {
+    setStatus(task.message || "Scansione non riuscita.", true);
+    setProgress(100, task.message || "Scansione non riuscita.", true);
+    return;
+  }
+  if (task.status !== "complete" || !task.result) return;
+  files = task.result.files || [];
+  courseTitle = task.result.title || "corso-moodle";
+  renderFiles();
+  const folderNote = task.result.folderErrors?.length
+    ? ` Alcune cartelle non sono state lette (${task.result.folderErrors.length}).`
+    : "";
+  setProgress(100, `Scansione completata: ${files.length} file trovati.`);
+  if (files.length) {
+    const detectedTypes = new Set(files.map((file) => file.extension).filter(Boolean)).size;
+    setStatus(`Trovati ${files.length} file con ${detectedTypes} tipi di estensione rilevati.${folderNote} Filtra e seleziona cosa scaricare.`);
+  } else {
+    setStatus(`Non ho trovato file Moodle standard in questa pagina.${folderNote} Prova a espandere le sezioni del corso e a scansionare di nuovo.`, true);
+  }
+}
+
+function showArchiveTask(task) {
+  const result = task.result;
+  if (task.status === "error") {
+    setStatus(task.message || "Creazione dello ZIP non riuscita.", true);
+    setProgress(100, task.message || "Creazione dello ZIP non riuscita.", true);
+    return;
+  }
+  if (task.status !== "complete" || !result?.ok) return;
+  const omitted = result.failed?.length || 0;
+  setProgress(100, `ZIP pronto: ${result.included} file.`);
+  setStatus(`Archivio ZIP pronto con ${result.included} file${omitted ? `; ${omitted} non inclusi` : ""}. Se il download non parte, usa il link comparso nella pagina del corso.`);
+}
+
+function showDownloadTask(task) {
+  const failed = task.failed || 0;
+  setProgress(task.progress || 0, task.message || "Download in corso…", failed > 0);
+  setStatus(task.status === "running"
+    ? "Edge continua i download anche se chiudi questo popup."
+    : `Download terminati: ${task.completed || 0} completati${failed ? `, ${failed} con errori` : ""}.`, failed > 0);
+}
+
+async function restoreExtensionState() {
+  let tab;
+  try {
+    tab = await getCourseTab();
+  } catch {
+    return;
+  }
+
+  const scanTask = await getPageTaskState(tab.id, "scan").catch(() => null);
+  if (scanTask?.status === "complete" || scanTask?.status === "error") showScanTask(scanTask);
+  if (scanTask?.status === "running") {
+    scanButton.disabled = true;
+    downloadButton.disabled = true;
+    setStatus("La scansione sta continuando nella pagina del corso…");
+    setProgress(scanTask.percent || 0, scanTask.message || "Scansione in corso…");
+    void monitorPageTask(tab.id, "scan").then((task) => {
+      showScanTask(task);
+      scanButton.disabled = false;
+      updateCount();
+    }).catch((error) => {
+      setStatus(error.message || "Scansione interrotta.", true);
+      scanButton.disabled = false;
+    });
+    return;
+  }
+
+  const archiveTask = await getPageTaskState(tab.id, "archive").catch(() => null);
+  if (archiveTask?.status === "complete" || archiveTask?.status === "error") showArchiveTask(archiveTask);
+  if (archiveTask?.status === "running") {
+    scanButton.disabled = true;
+    downloadButton.disabled = true;
+    setStatus("La preparazione del download sta continuando nella pagina del corso…");
+    setProgress(archiveTask.percent || 0, archiveTask.message || "Preparazione in corso…");
+    void monitorPageTask(tab.id, "archive").then((task) => {
+      showArchiveTask(task);
+      scanButton.disabled = false;
+      updateCount();
+    }).catch((error) => {
+      setStatus(error.message || "Preparazione ZIP interrotta.", true);
+      scanButton.disabled = false;
+    });
+    return;
+  }
+
+  const downloadTask = await loadDownloadTask().catch(() => null);
+  const currentCourseId = new URL(tab.url).searchParams.get("id");
+  if (downloadTask?.courseId === currentCourseId && downloadTask.status === "running") {
+    setStatus("I download continuano in Edge anche se chiudi questo popup.");
+    void monitorDownloadTask(downloadTask.id).then(showDownloadTask).catch((error) => {
+      setStatus(error.message || "Stato dei download non disponibile.", true);
+    });
+  } else if (downloadTask?.courseId === currentCourseId) {
+    showDownloadTask(downloadTask);
+  }
+}
+
 scanButton.addEventListener("click", async () => {
   scanButton.disabled = true;
   resultsSection.hidden = true;
   files = [];
   searchQuery.value = "";
-  setStatus("Sto cercando i file nella pagina e nelle cartelle Moodle…");
+  setStatus("Puoi chiudere il popup: la scansione continua nella scheda del corso.");
   setProgress(0, "Avvio scansione…");
   try {
     const tab = await getCourseTab();
-    const result = await executeWithProgress(tab.id, "scan", scanMoodleCourse);
-    if (!result) throw new Error("La scansione non ha restituito risultati.");
-    if (result.error) throw new Error(result.error);
-
-    files = result.files || [];
-    courseTitle = result.title || "corso-moodle";
-    renderFiles();
-    const folderNote = result.folderErrors?.length
-      ? ` Alcune cartelle non sono state lette (${result.folderErrors.length}).`
-      : "";
-    setProgress(100, `Scansione completata: ${files.length} file trovati.`);
-    if (files.length) {
-      const detectedTypes = new Set(files.map((file) => file.extension).filter(Boolean)).size;
-      setStatus(`Trovati ${files.length} file con ${detectedTypes} tipi di estensione rilevati.${folderNote} Filtra e seleziona cosa scaricare.`);
-    } else {
-      setStatus(`Non ho trovato file Moodle standard in questa pagina.${folderNote} Prova a espandere le sezioni del corso e a scansionare di nuovo.`, true);
-    }
+    const task = await startPageTask(tab.id, "scan", startMoodleScan);
+    showScanTask(task);
   } catch (error) {
     setStatus(error.message || "Scansione non riuscita.", true);
     setProgress(100, "Scansione non riuscita.", true);
@@ -738,24 +913,21 @@ downloadButton.addEventListener("click", async () => {
   try {
     const tab = await getCourseTab();
     if (zipOption.checked) {
-      setStatus(`Recupero ${selected.length} file e preparo lo ZIP… lascia aperta questa finestra.`);
+      setStatus(`Puoi chiudere il popup: preparo lo ZIP nella scheda del corso (${selected.length} file).`);
       setProgress(0, "Avvio creazione ZIP…");
       const safeTitle = courseTitle
         .replace(/[<>:"/\\|?*\u0000-\u001f]/g, "_")
         .replace(/\s+/g, " ")
         .trim()
         .slice(0, 120) || "corso-moodle";
-      const result = await executeWithProgress(tab.id, "archive", createCourseZip, [selected, `Materiali_${safeTitle}.zip`]);
-      if (!result?.ok) throw new Error(result?.error || "Non è stato possibile creare l’archivio.");
-      const omitted = result.failed?.length || 0;
-      setProgress(100, `ZIP pronto: ${result.included} file.`);
-      setStatus(`Archivio ZIP pronto con ${result.included} file${omitted ? `; ${omitted} non inclusi` : ""}. Se il download non parte, usa il link comparso nella pagina del corso.`);
+      const task = await startPageTask(tab.id, "archive", startCourseZip, [selected, `Materiali_${safeTitle}.zip`]);
+      showArchiveTask(task);
     } else {
-      setStatus(`Avvio e controllo ${selected.length} download singoli…`);
+      setStatus(`Avvio ${selected.length} download singoli; continueranno anche se chiudi il popup.`);
       setProgress(0, "Avvio dei download…");
-      const result = await downloadSelectedSeparately(selected);
-      const errors = result.failures?.length || 0;
-      setStatus(`Download completati: ${result.completed} di ${selected.length}${errors ? `; errori ${errors}` : ""}.${result.trackingUnavailable ? " I file possono comunque continuare a scaricarsi in Edge." : ""}`);
+      const taskId = await beginIndividualDownloads(selected, tab.url);
+      const task = await monitorDownloadTask(taskId);
+      showDownloadTask(task);
     }
   } catch (error) {
     setStatus(error.message || (zipOption.checked ? "Non è stato possibile creare lo ZIP." : "Non è stato possibile avviare i download."), true);
@@ -771,3 +943,5 @@ downloadButton.addEventListener("click", async () => {
     updateCount();
   }
 });
+
+void restoreExtensionState();

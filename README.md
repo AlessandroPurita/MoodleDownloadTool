@@ -20,7 +20,7 @@ Edge consente di caricare localmente un'estensione non pacchettizzata dalla pagi
 4. Usa **Tipo di file** per filtrare per estensione e **Cerca parole chiave** per trovare file per nome o tipo.
 5. Seleziona i file da scaricare. **Seleziona tutti nel filtro** seleziona solo i file mostrati dai filtri attivi; puoi combinare selezioni fatte con estensioni e parole chiave diverse.
 6. Seleziona **Crea un unico archivio ZIP** se vuoi un archivio; lascialo deselezionato per scaricare i file singolarmente.
-7. Premi il pulsante di download. La barra indica l'avanzamento della creazione ZIP oppure dei download singoli; lascia aperta la finestra dell'estensione fino al completamento.
+7. Premi il pulsante di download. Puoi chiudere il popup o cliccare sulla pagina: la scansione e la preparazione dello ZIP continuano nella scheda del corso, mentre i download singoli continuano nel gestore download di Edge. Riaprendo l'estensione trovi di nuovo lo stato e la percentuale.
 8. Se Edge non avvia lo ZIP automaticamente, usa il link **Scarica archivio ZIP** che compare nella pagina Moodle.
 
 L'archivio viene creato nel browser, nella scheda del corso, senza librerie esterne o server. I file sono memorizzati nello ZIP senza ricompressione; i nomi duplicati ricevono un numero progressivo.
@@ -32,11 +32,13 @@ L'archivio viene creato nel browser, nella scheda del corso, senza librerie este
 - Gestisce i file Moodle (`pluginfile.php`), le risorse-file e i file elencati nelle cartelle Moodle.
 - Il formato ZIP classico usato dal tool supporta archivi fino a 4 GB e 65.535 file. Per archivi molto grandi il browser può richiedere memoria aggiuntiva.
 - La barra di avanzamento mostra la scansione, il recupero e l’inserimento dei file nello ZIP, oppure i download singoli completati rispetto al totale.
+- Per scansione e ZIP, lascia aperta la stessa scheda del corso fino al termine: chiudere il popup è sicuro, ma chiudere o navigare via dalla scheda interrompe l'operazione. I download singoli già avviati continuano invece nel gestore download di Edge.
 - Non scarica video o link esterni, attività, né contenuti che il tuo account non può aprire.
 - Non modifica il corso, non memorizza credenziali e non invia i link a server esterni.
 - Se scegli l'opzione ZIP, il download finale è un singolo archivio `.zip`; i nomi duplicati all'interno dell'archivio ricevono un numero progressivo. Altrimenti i file vengono scaricati separatamente.
 
 ## Permessi
 
-- `activeTab` e `scripting`: scansionare la scheda attiva solo quando apri l'estensione e avvii la scansione.
+- `activeTab` e `scripting`: scansionare la scheda attiva quando avvii la scansione e mantenere il lavoro nella pagina del corso.
 - `downloads`: avviare e controllare i download singoli quando l'opzione ZIP non è selezionata.
+- `storage`: conservare temporaneamente lo stato dei download singoli per ripristinarne l'avanzamento quando riapri il popup.
